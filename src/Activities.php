@@ -25,7 +25,7 @@ function activities(Route $route, array $postData): Response {
             return uppdateraAktivitet( $route->getParams()[0],  $postData["activity"]);
         }
         if (count($route->getParams()) === 1 && $route->getMethod() === RequestMethod::DELETE) {
-            return raderaAktivetet($route->getParams()[0]);
+            return raderaAktivitet($route->getParams()[0]);
         }
     } catch (Exception $exc) {
         return new Response($exc->getMessage(), 400);
@@ -39,6 +39,7 @@ function activities(Route $route, array $postData): Response {
  * @return Response
  */
 function hamtaAllaAktiviteter(): Response {
+    //Koppla mot databas
     $db=connectDb();
 
     //Hämta alla aktiviteter
@@ -63,6 +64,33 @@ function hamtaAllaAktiviteter(): Response {
  * @return Response
  */
 function hamtaEnskildAktivitet(string $id): Response {
+    //Kontrollera inparameter
+    $kontrolleratId=filter_var($id, FILTER_VALIDATE_INT);
+    if($kontrolleratId===false || $kontrolleratId<1) {
+        $retur=new stdClass();
+        $retur->error=["Bad request", "Ogiltigt id"];
+        return new Response($retur, 400);
+    }
+
+    //Koppla mot databas
+    $db=connectDb();
+
+    //Skicka fråga
+    $stmt=$db->prepare("SELECT id, namn FROM aktiviteter WHERE id=:id");
+    $result=$stmt->execute(["id"=>$kontrolleratId]);
+
+    //Kontrollera svar
+    if($row=$stmt->fetch(PDO::FETCH_ASSOC)) {
+        $retur=new stdClass();
+        $retur->id=$row["id"];
+        $retur->activity=$row["namn"];
+        return new Response($retur);
+    }
+    else {
+        $retur=new stdClass();
+        $retur->error=["Bad request", "Angivet id ($kontrolleratId) finns inte"];
+        return new Response($retur, 400);
+    }
 }
 
 /**
@@ -71,10 +99,11 @@ function hamtaEnskildAktivitet(string $id): Response {
  * @return Response
  */
 function sparaNyAktivitet(string $aktivitet): Response {
-     //Kontrollera indata - rensa bort onödiga tecken
-    $kontrolleradAktivitet=filter_var($aktivitet, FILTER_SANITIZE_ENCODED);
+    //Kontrollera indata - rensa bort onödiga tecken
+    $kontrolleradAktivitet=filter_var($aktivitet, FILTER_SANITIZE_SPECIAL_CHARS);
 
-    if(trim($aktivitet)==='') {
+    //Kontrollera att aktiviteten inte är tom
+    if(trim($aktivitet)==="") {
         $retur=new stdclass();
         $retur->error=["Bad request", "Aktivitet får inte vara tom"];
         return new Response($retur, 400);
@@ -92,7 +121,7 @@ function sparaNyAktivitet(string $aktivitet): Response {
     $retur=[];
     if($svar===true) {
         $retur=new stdClass();
-        $retur->ID=$db->lastInsertId();
+        $retur->id=$db->lastInsertId();
         $retur->meddelande=["Spara lyckades", "1 post lades till"];
         return new Response($retur);
     }
@@ -116,6 +145,44 @@ function sparaNyAktivitet(string $aktivitet): Response {
  * @return Response
  */
 function uppdateraAktivitet(string $id, string $aktivitet): Response {
+    //Kontrollera indata
+    $kontrolleradId=filter_var($id, FILTER_VALIDATE_INT);
+    $kontrolleradAktivitet=filter_var($aktivitet, FILTER_SANITIZE_SPECIAL_CHARS);
+    $kontrolleradAktivitet=trim($kontrolleradAktivitet);
+
+    if($kontrolleradId===false || $kontrolleradId<1 || $kontrolleradAktivitet==='') {
+        $retur=new stdClass();
+        $retur->error=["Bad request", "Felaktig indata till uppdatera aktivitet"];
+        return new Response($retur, 400);
+    }
+
+    try {
+        //Koppla databas
+        $db=connectDb();
+
+        //Förbered fråga
+        $stmt=$db->prepare("UPDATE aktiviteter SET namn=:aktivitet wHERE id=:id");
+        $stmt->execute(["aktivitet"=>$kontrolleradAktivitet, "id"=>$kontrolleradId]);
+
+        //Hantera svar
+        if($stmt->rowCount()===1) {
+            $retur=new stdClass();
+            $retur->result=true;
+            $retur->message=["Uppdatera aktivitet lyckades", "1 rad uppdaterad"];
+            return new Response($retur);
+        }
+        else {
+            $retur=new stdClass();
+            $retur->result=false;
+            $retur->message=["Uppdatera aktivitet misslyckades", "Ingen rad uppdaterad"];
+            return new Response($retur);
+        }
+    }
+    catch(Exception $e) {
+        $retur=new stdClass();
+        $retur->error=["Bad request", "Något gick fel vid databasanropet", $e->getMessage()];
+        return new Response($retur, 400);
+    }
 }
 
 /**
@@ -123,5 +190,40 @@ function uppdateraAktivitet(string $id, string $aktivitet): Response {
  * @param string $id Id för posten som ska raderas
  * @return Response
  */
-function raderaAktivetet(string $id): Response {
+function raderaAktivitet(string $id): Response {
+    //Kontrollera indata
+    $kontrolleratId=filter_var($id, FILTER_VALIDATE_INT);
+    if($kontrolleratId===false || $kontrolleratId < 1) {
+        $retur=new stdClass();
+        $retur->error=["Bad request", "Felaktigt angivet id"];
+        return new Response($retur, 400);
+    }
+
+    try {
+
+    //Koppla databas
+    $db=connectDb();
+
+    //Exekvera SQL
+    $stmt=$db->prepare("DELETE FROM aktiviteter WHERE id=:id");
+    $stmt->execute(['id'=>$kontrolleratId]);
+
+    //Skicka svar
+    if($stmt->rowCount()===1) {
+        $retur=new stdClass();
+        $retur->result=true;
+        $retur->message=["Radera lyckades", "1 post raderades från databasen"];
+    }
+    else {
+        $retur=new stdClass();
+        $retur->result=false;
+        $retur->message=["Radera misslyckades", "Ingen post raderades från databasen"];
+    }
+    return new Response($retur);
+    }
+    catch(Exception $e) {
+        $retur=new stdClass();
+        $retur->error=["Bad request", "Något gick fel vid databasanropet", $e->getMessage()];
+        return new Response($retur, 400);
+    }
 }
