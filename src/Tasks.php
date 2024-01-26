@@ -1,6 +1,9 @@
 <?php
 
 declare (strict_types=1);
+
+use LDAP\Result;
+
 require_once __DIR__ . '/activities.php';
 
 /**
@@ -190,7 +193,42 @@ function hamtaDatum(string $from, string $tom): Response {
  * @return Response
  */
 function hamtaEnskildUppgift(string $id): Response {
-    
+    // Kontrollera indata
+    $kontrolleratId=filter_var($id, FILTER_VALIDATE_INT);
+    if(!$kontrolleratId) {
+        $retur=new stdClass();
+        $retur->error=['Bad request', 'Felaktivt angiven id'];
+        return new Response ($retur, 400);
+    }
+
+
+    if($kontrolleratId && $kontrolleratId<1) {
+        $retur=new stdClass();
+        $retur->error=['Bad request', 'Ogiltigt id'];
+        return new Response ($retur, 400);
+    }
+    //Koppla databas
+    $db=connectDb();
+
+    //Exekvera SQL
+    $stmt=$db->prepare("SELECT u.id, tid, datum, beskrivning, aktivitetid, namn "
+                . "FROM uppgifter u INNER JOIN aktiviteter a ON aktivitetId=a.id "
+                . "WHERE u.id=:id");
+    $stmt->execute(['id'=>$kontrolleratId]);
+    //Returnera svar
+    if($row=$stmt->fetch()) {
+        $retur= new stdClass();
+        $retur->id=$row['id'];
+        $retur->date=$row['datum'];
+        $retur->time=substr($row['tid'], 0,-3);
+        $retur->activity=$row['namn'];
+        $retur->activityId=$row['aktivitetid'];
+        return new Response($retur);
+    } else {
+        $retur = new stdClass();
+        $retur->error=['Hämta misslyckades', 'Kunde inte hitta uppgift med angiven id'];
+        return new Response($retur, 400);
+    }
 }
 
 /**
